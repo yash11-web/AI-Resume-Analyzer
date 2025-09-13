@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Register</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <span class="navbar">AI Resume Analyzer</span>
+    <div class="card">
+      <h1 class="title">Register</h1>
+      <form id="registerForm">
+        <input type="text" name="username" placeholder="Choose a username" required />
+        <input type="password" name="password" placeholder="Choose a password" required />
+        <button type="submit">Register</button>
+      </form>
+      <div class="link"><a href="login.html">Already have an account? Login</a></div>
+    </div>
+  </div>
+<script>
+document.getElementById("registerForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  const data = Object.fromEntries(formData.entries());
+
+  const res = await fetch("/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+  const result = await res.json();
+  if (result.success) {
+    alert("Registration successful! Please login.");
+    window.location.href = "login.html";
+  } else {
+    alert(result.message);
+  }
+});
+</script>
+</body>
+</html>

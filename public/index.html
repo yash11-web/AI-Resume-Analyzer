@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AI Resume Analyzer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="navbar">
+    <span>AI Resume Analyzer</span>
+    <button onclick="window.location.href='/logout'">Logout</button>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <h1 class="title">Upload Your Resume</h1>
+      <form id="uploadForm" enctype="multipart/form-data">
+        <input type="file" name="resume" accept=".pdf,.docx" required />
+        <textarea name="jobdesc" placeholder="Paste job description (optional)"></textarea>
+        <button type="submit">Analyze</button>
+      </form>
+    </div>
+
+    <div class="card results" id="results" style="display:none;">
+      <h2 class="title">Analysis Results</h2>
+      <pre id="analysisOutput"></pre>
+    </div>
+  </div>
+
+<script>
+document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+
+  const res = await fetch("/upload", {
+    method: "POST",
+    body: formData
+  });
+
+  const result = await res.json();
+  if (result.success) {
+    document.getElementById("results").style.display = "block";
+    document.getElementById("analysisOutput").textContent = result.analysis;
+  } else {
+    alert(result.message);
+  }
+});
+</script>
+</body>
+</html>
