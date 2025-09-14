@@ -10,10 +10,15 @@ import dotenv from "dotenv";
 import fs from "fs";
 import { createClient } from "@supabase/supabase-js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import path from "path";
+import { fileURLToPath } from "url";
 
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // --- Supabase Client ---
 const supabase = createClient(
@@ -32,7 +37,9 @@ app.use(
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static("public"));
+
+// --- Serve static files (but don't auto-serve index.html) ---
+app.use(express.static("public", { index: false }));
 
 // --- Multer setup ---
 const upload = multer({ dest: "uploads/" });
@@ -46,6 +53,16 @@ function isAuth(req, res, next) {
   if (req.session.user) return next();
   res.redirect("/login.html");
 }
+
+// --- Root route -> always login page ---
+app.get("/", (req, res) => {
+  res.redirect("/login.html");
+});
+
+// --- Protected route for index.html ---
+app.get("/index.html", isAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
 // --- REGISTER ---
 app.post("/register", async (req, res) => {

@@ -7,9 +7,15 @@
 </head>
 <body>
   <div class="navbar">
-    <span>AI Resume Analyzer</span>
+  <span>AI Resume Analyzer</span>
+  <div class="nav-links">
+    <a href="https://github.com/yash11-web/AI-Resume-Analyzer.git" target="_blank">GitHub</a>
+    <a href="https://yashwanth-t-portfolio.vercel.app" target="_blank">Portfolio</a>
+    <a href="about.html">About</a>
     <button onclick="window.location.href='/logout'">Logout</button>
   </div>
+</div>
+
 
   <div class="container">
     <div class="card">
@@ -23,7 +29,16 @@
 
     <div class="card results" id="results" style="display:none;">
       <h2 class="title">Analysis Results</h2>
-      <pre id="analysisOutput"></pre>
+
+      <!-- Loading indicator -->
+      <div id="loading" style="display:none;">
+        <div class="progress-bar">
+          <div class="progress"></div>
+        </div>
+        <p>Analyzing your resume, please wait...</p>
+      </div>
+
+      <div class="analysis-output" id="analysisOutput"></div>
     </div>
   </div>
 
@@ -32,19 +47,84 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const formData = new FormData(e.target);
 
-  const res = await fetch("/upload", {
-    method: "POST",
-    body: formData
-  });
+  // show loading
+  document.getElementById("results").style.display = "block";
+  document.getElementById("loading").style.display = "block";
+  document.getElementById("analysisOutput").innerHTML = "";
 
-  const result = await res.json();
-  if (result.success) {
-    document.getElementById("results").style.display = "block";
-    document.getElementById("analysisOutput").textContent = result.analysis;
-  } else {
-    alert(result.message);
+  try {
+    const res = await fetch("/upload", {
+      method: "POST",
+      body: formData
+    });
+
+    const result = await res.json();
+
+    // hide loading
+    document.getElementById("loading").style.display = "none";
+
+    if (result.success) {
+      document.getElementById("analysisOutput").innerHTML = formatAnalysis(result.analysis);
+    } else {
+      document.getElementById("analysisOutput").innerHTML =
+        "<p class='error'>❌ " + result.message + "</p>";
+    }
+  } catch (err) {
+    document.getElementById("loading").style.display = "none";
+    document.getElementById("analysisOutput").innerHTML =
+      "<p class='error'>❌ Server error</p>";
   }
 });
+
+function formatAnalysis(text) {
+  const lines = text.split("\n").filter(l => l.trim() !== "");
+  let html = "";
+
+  for (let line of lines) {
+    // Detect scores like "Overall score: 85/100" or "Keyword match rate: 78%"
+    let scoreMatch = line.match(/(.*?):\s*(\d+)(?:\/100|%)/i);
+    if (scoreMatch) {
+      const label = scoreMatch[1];
+      const value = parseInt(scoreMatch[2]);
+      html += renderScore(label, value);
+    }
+    else if (/missing keywords|recommendations|technical skills|experience/i.test(line.toLowerCase())) {
+      html += `<h3>${line.replace("**", "").trim()}</h3>`;
+    }
+    else if (line.startsWith("-") || line.startsWith("*")) {
+      html += `<li>${line.replace(/^[-*]\s*/, "").trim()}</li>`;
+    }
+    else if (line.startsWith("**Strengths:**")) {
+      html += `<p class="strength"><strong>Strengths:</strong> ${line.replace("**Strengths:**", "").trim()}</p>`;
+    }
+    else if (line.startsWith("**Areas for Improvement:**")) {
+      html += `<p class="improvement"><strong>Areas for Improvement:</strong> ${line.replace("**Areas for Improvement:**", "").trim()}</p>`;
+    }
+    else {
+      html += `<p>${line}</p>`;
+    }
+  }
+
+  // Wrap bullet lists
+  html = html.replace(/(<li>.*<\/li>)+/g, m => `<ul>${m}</ul>`);
+
+  return html;
+}
+
+function renderScore(label, value) {
+  let color = "red";
+  if (value >= 75) color = "green";
+  else if (value >= 50) color = "orange";
+
+  return `
+    <div class="score-item">
+      <span class="score-label">${label}: <strong>${value}</strong></span>
+      <div class="score-bar">
+        <div class="score-fill ${color}" style="width:${value}%"></div>
+      </div>
+    </div>
+  `;
+}
 </script>
 </body>
 </html>
