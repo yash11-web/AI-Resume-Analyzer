@@ -259,3 +259,83 @@ button:hover {
 .nav-links a:hover {
   color: #ffdd59;
 }
+
+
+/* ============================= */
+/* NEW ATS DASHBOARD UI STYLES */
+/* ============================= */
+
+/* Grid layout for analysis cards */
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* Center utility */
+.center {
+  text-align: center;
+}
+
+/* ATS Score Circle */
+.score-circle {
+  width: 120px;
+  height: 120px;
+  margin: 15px auto;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  font-size: 2.6rem;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Large numbers (keyword %) */
+.big-text {
+  font-size: 2rem;
+  font-weight: bold;
+  color: #2575fc;
+}
+
+/* Skill tags */
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tags span {
+  background: #edf2ff;
+  color: #3b5bdb;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.tags.danger span {
+  background: #ffe3e3;
+  color: #c92a2a;
+}
+
+/* Section feedback */
+.section-feedback p {
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+#loading p {
+  margin-bottom: 12px;
+  color: #555;
+  font-size: 0.95rem;
+}
