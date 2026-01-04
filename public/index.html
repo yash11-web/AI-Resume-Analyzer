@@ -1,56 +1,109 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>AI Resume Analyzer</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="navbar">
+
+<div class="navbar">
   <span>AI Resume Analyzer</span>
+
   <div class="nav-links">
+    <a href="about.html">About</a>
     <a href="https://github.com/yash11-web/AI-Resume-Analyzer.git" target="_blank">GitHub</a>
     <a href="https://yashwanth-t-portfolio.vercel.app" target="_blank">Portfolio</a>
-    <a href="about.html">About</a>
     <button onclick="window.location.href='/logout'">Logout</button>
   </div>
 </div>
 
 
-  <div class="container">
-    <div class="card">
-      <h1 class="title">Upload Your Resume</h1>
-      <form id="uploadForm" enctype="multipart/form-data">
-        <input type="file" name="resume" accept=".pdf,.docx" required />
-        <textarea name="jobdesc" placeholder="Paste job description (optional)"></textarea>
-        <button type="submit">Analyze</button>
-      </form>
-    </div>
+<div class="container">
 
-    <div class="card results" id="results" style="display:none;">
-      <h2 class="title">Analysis Results</h2>
+  <!-- Upload -->
+  <div class="card">
+    <h1 class="title">Upload Resume</h1>
+    <form id="uploadForm">
+      <input type="file" name="resume" required />
+      <textarea name="jobdesc" placeholder="Paste Job Description (optional)"></textarea>
+      <button type="submit">Analyze Resume</button>
+    </form>
+  </div>
 
-      <!-- Loading indicator -->
-      <div id="loading" style="display:none;">
-        <div class="progress-bar">
-          <div class="progress"></div>
-        </div>
-        <p>Analyzing your resume, please wait...</p>
-      </div>
+  <!-- 🔄 Loading -->
+  <div class="card center" id="loading" style="display:none;">
+    <h3>Analyzing Resume</h3>
+    <p>Please wait while ATS analysis is running…</p>
 
-      <div class="analysis-output" id="analysisOutput"></div>
+    <div class="progress-bar">
+      <div class="progress"></div>
     </div>
   </div>
+
+  <!-- Results -->
+  <div id="results" style="display:none;">
+
+    <!-- ATS Score -->
+    <div class="card center">
+      <h2>ATS Score</h2>
+      <div class="score-circle" id="atsScore">--</div>
+      <p id="atsNote"></p>
+    </div>
+
+    <!-- Strengths & Weaknesses -->
+    <div class="grid-2">
+      <div class="card">
+        <h3>Resume Strengths</h3>
+        <ul id="strengths"></ul>
+      </div>
+
+      <div class="card">
+        <h3>Resume Weaknesses</h3>
+        <ul id="weaknesses"></ul>
+      </div>
+    </div>
+
+    <!-- JD Dependent Section -->
+    <div id="jdSection" style="display:none;">
+      <div class="grid-2">
+        <div class="card">
+          <h3>Keyword Match</h3>
+          <div class="big-text" id="keywordRate"></div>
+          <div class="tags" id="matchedKeywords"></div>
+        </div>
+
+        <div class="card">
+          <h3>Missing Skills</h3>
+          <div class="tags danger" id="missingKeywords"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Enhancements -->
+    <div class="card">
+      <h3>Resume Enhancements</h3>
+      <ul id="enhancements"></ul>
+    </div>
+
+    <!-- Section Feedback -->
+    <div class="card">
+      <h3>Section-wise Feedback</h3>
+      <div class="section-feedback" id="sectionFeedback"></div>
+    </div>
+
+  </div>
+</div>
 
 <script>
 document.getElementById("uploadForm").addEventListener("submit", async (e) => {
   e.preventDefault();
+
   const formData = new FormData(e.target);
 
-  // show loading
-  document.getElementById("results").style.display = "block";
+  // UI state
+  document.getElementById("results").style.display = "none";
   document.getElementById("loading").style.display = "block";
-  document.getElementById("analysisOutput").innerHTML = "";
 
   try {
     const res = await fetch("/upload", {
@@ -60,71 +113,62 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
 
     const result = await res.json();
 
-    // hide loading
     document.getElementById("loading").style.display = "none";
 
-    if (result.success) {
-      document.getElementById("analysisOutput").innerHTML = formatAnalysis(result.analysis);
-    } else {
-      document.getElementById("analysisOutput").innerHTML =
-        "<p class='error'>❌ " + result.message + "</p>";
+    if (!result.success) {
+      alert(result.message);
+      return;
     }
+
+    const data = result.analysis;
+    document.getElementById("results").style.display = "block";
+
+    // ATS Score
+    document.getElementById("atsScore").textContent = data.ats_score;
+    document.getElementById("atsNote").textContent =
+      data.mode === "resume_only"
+        ? "Based on general ATS friendliness"
+        : "Based on Job Description alignment";
+
+    fillList("strengths", data.strengths);
+    fillList("weaknesses", data.weaknesses);
+    fillList("enhancements", data.enhancements);
+
+    // Section feedback
+    const sf = document.getElementById("sectionFeedback");
+    sf.innerHTML = "";
+    Object.entries(data.section_feedback || {}).forEach(([k, v]) => {
+      sf.innerHTML += `<p><strong>${k}:</strong> ${v}</p>`;
+    });
+
+    // JD based
+    if (data.mode === "resume_jd") {
+      document.getElementById("jdSection").style.display = "block";
+      document.getElementById("keywordRate").textContent = data.keyword_match + "%";
+      fillTags("matchedKeywords", data.matched_keywords);
+      fillTags("missingKeywords", data.missing_keywords);
+    } else {
+      document.getElementById("jdSection").style.display = "none";
+    }
+
   } catch (err) {
     document.getElementById("loading").style.display = "none";
-    document.getElementById("analysisOutput").innerHTML =
-      "<p class='error'>❌ Server error</p>";
+    alert("Something went wrong. Please try again.");
   }
 });
 
-function formatAnalysis(text) {
-  const lines = text.split("\n").filter(l => l.trim() !== "");
-  let html = "";
-
-  for (let line of lines) {
-    // Detect scores like "Overall score: 85/100" or "Keyword match rate: 78%"
-    let scoreMatch = line.match(/(.*?):\s*(\d+)(?:\/100|%)/i);
-    if (scoreMatch) {
-      const label = scoreMatch[1];
-      const value = parseInt(scoreMatch[2]);
-      html += renderScore(label, value);
-    }
-    else if (/missing keywords|recommendations|technical skills|experience/i.test(line.toLowerCase())) {
-      html += `<h3>${line.replace("**", "").trim()}</h3>`;
-    }
-    else if (line.startsWith("-") || line.startsWith("*")) {
-      html += `<li>${line.replace(/^[-*]\s*/, "").trim()}</li>`;
-    }
-    else if (line.startsWith("**Strengths:**")) {
-      html += `<p class="strength"><strong>Strengths:</strong> ${line.replace("**Strengths:**", "").trim()}</p>`;
-    }
-    else if (line.startsWith("**Areas for Improvement:**")) {
-      html += `<p class="improvement"><strong>Areas for Improvement:</strong> ${line.replace("**Areas for Improvement:**", "").trim()}</p>`;
-    }
-    else {
-      html += `<p>${line}</p>`;
-    }
-  }
-
-  // Wrap bullet lists
-  html = html.replace(/(<li>.*<\/li>)+/g, m => `<ul>${m}</ul>`);
-
-  return html;
+function fillList(id, items = []) {
+  const el = document.getElementById(id);
+  el.innerHTML = "";
+  items.forEach(i => el.innerHTML += `<li>${i}</li>`);
 }
 
-function renderScore(label, value) {
-  let color = "red";
-  if (value >= 75) color = "green";
-  else if (value >= 50) color = "orange";
-
-  return `
-    <div class="score-item">
-      <span class="score-label">${label}: <strong>${value}</strong></span>
-      <div class="score-bar">
-        <div class="score-fill ${color}" style="width:${value}%"></div>
-      </div>
-    </div>
-  `;
+function fillTags(id, items = []) {
+  const el = document.getElementById(id);
+  el.innerHTML = "";
+  items.forEach(i => el.innerHTML += `<span>${i}</span>`);
 }
 </script>
+
 </body>
 </html>
