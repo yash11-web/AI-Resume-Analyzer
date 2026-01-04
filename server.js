@@ -46,7 +46,7 @@ const upload = multer({ dest: "uploads/" });
 
 // --- Google Gemini ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
 
 // --- Middleware for auth ---
 function isAuth(req, res, next) {
@@ -118,55 +118,113 @@ app.get("/logout", (req, res) => {
 // --- UPLOAD & ANALYSIS ---
 app.post("/upload", isAuth, upload.single("resume"), async (req, res) => {
   try {
-    if (!req.file) return res.json({ success: false, message: "No file uploaded" });
+    if (!req.file) {
+      return res.json({ success: false, message: "No file uploaded" });
+    }
 
-    let text = "";
+    let resumeText = "";
+
+    // Parse resume
     if (req.file.mimetype === "application/pdf") {
       const dataBuffer = fs.readFileSync(req.file.path);
       const data = await pdfParse(dataBuffer);
-      text = data.text;
+      resumeText = data.text;
     } else if (
       req.file.mimetype ===
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ) {
       const data = await mammoth.extractRawText({ path: req.file.path });
-      text = data.value;
+      resumeText = data.value;
     } else {
       return res.json({ success: false, message: "Unsupported file format" });
     }
 
-    // Delete temp file
     fs.unlinkSync(req.file.path);
 
-    const jobDesc = req.body.jobdesc || "";
+    const jobDesc = (req.body.jobdesc || "").trim();
+    const mode = jobDesc ? "resume_jd" : "resume_only";
 
+    // 🔥 STRICT JSON PROMPT
     const prompt = `
-You are an ATS + Resume analyzer.
-Analyze the following resume:
-${text}
+You are a professional ATS (Applicant Tracking System).
 
-Job Description (optional):
-${jobDesc}
+Analyze the resume text provided.
 
-Provide:
-- Overall score (0-100)
-- Keyword match rate
-- Missing keywords
-- Technical skills
-- Experience level
-- Grammar quality score
-- Actionable improvement recommendations
-    `;
+RULES:
+- Respond ONLY in valid JSON
+- No markdown
+- No explanations outside JSON
+- Follow the schema strictly
+
+Resume Text:
+${resumeText}
+
+${jobDesc ? `Job Description:\n${jobDesc}` : ""}
+
+JSON RESPONSE SCHEMA:
+
+If mode = resume_only:
+{
+  "mode": "resume_only",
+  "ats_score": number,
+  "strengths": [string],
+  "weaknesses": [string],
+  "enhancements": [string],
+  "section_feedback": {
+    "skills": string,
+    "projects": string,
+    "experience": string,
+    "education": string
+  }
+}
+
+If mode = resume_jd:
+{
+  "mode": "resume_jd",
+  "ats_score": number,
+  "keyword_match": number,
+  "matched_keywords": [string],
+  "missing_keywords": [string],
+  "strengths": [string],
+  "weaknesses": [string],
+  "enhancements": [string],
+  "section_feedback": {
+    "skills": string,
+    "projects": string,
+    "experience": string,
+    "education": string
+  }
+}
+
+Mode to use: ${mode}
+`;
 
     const result = await model.generateContent(prompt);
-    const output = result.response.text();
+    const rawText = result.response.text();
 
-    res.json({ success: true, analysis: output });
+    // 🛡️ Safety JSON parse
+    let analysis;
+    try {
+      analysis = JSON.parse(rawText);
+    } catch (err) {
+      console.error("❌ JSON parse error:", rawText);
+      return res.json({
+        success: false,
+        message: "AI response format error. Try again."
+      });
+    }
+
+    res.json({
+      success: true,
+      analysis
+    });
+
   } catch (err) {
-    console.error("❌ Resume parsing error:", err);
+    console.error("❌ Resume analysis error:", err);
     res.json({ success: false, message: "Analysis failed" });
   }
 });
+
 
 // --- START SERVER ---
 app.listen(PORT, () => {
