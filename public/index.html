@@ -9,17 +9,26 @@
 
 <div class="navbar">
   <span>AI Resume Analyzer</span>
-
   <div class="nav-links">
     <a href="about.html">About</a>
     <a href="https://github.com/yash11-web/AI-Resume-Analyzer.git" target="_blank">GitHub</a>
     <a href="https://yashwanth-t-portfolio.vercel.app" target="_blank">Portfolio</a>
-    <button onclick="window.location.href='/logout'">Logout</button>
+    <button onclick="window.location.href='/login.html'">Login</button>
   </div>
 </div>
 
-
 <div class="container">
+
+  <!-- DEMO BANNER (shown on page load) -->
+  <div id="demoBanner" class="card" style="display:none; text-align:center;">
+    <h3>Demo Mode</h3>
+    <p id="demoText"></p>
+    <p>
+      <a href="/login.html"><strong>Login</strong></a> or
+      <a href="/register.html"><strong>Signup</strong></a>
+      to unlock more ATS scans.
+    </p>
+  </div>
 
   <!-- Upload -->
   <div class="card">
@@ -31,14 +40,10 @@
     </form>
   </div>
 
-  <!-- 🔄 Loading -->
+  <!-- Loading -->
   <div class="card center" id="loading" style="display:none;">
     <h3>Analyzing Resume</h3>
     <p>Please wait while ATS analysis is running…</p>
-
-    <div class="progress-bar">
-      <div class="progress"></div>
-    </div>
   </div>
 
   <!-- Results -->
@@ -57,14 +62,13 @@
         <h3>Resume Strengths</h3>
         <ul id="strengths"></ul>
       </div>
-
       <div class="card">
         <h3>Resume Weaknesses</h3>
         <ul id="weaknesses"></ul>
       </div>
     </div>
 
-    <!-- JD Dependent Section -->
+    <!-- JD Section -->
     <div id="jdSection" style="display:none;">
       <div class="grid-2">
         <div class="card">
@@ -72,7 +76,6 @@
           <div class="big-text" id="keywordRate"></div>
           <div class="tags" id="matchedKeywords"></div>
         </div>
-
         <div class="card">
           <h3>Missing Skills</h3>
           <div class="tags danger" id="missingKeywords"></div>
@@ -89,74 +92,102 @@
     <!-- Section Feedback -->
     <div class="card">
       <h3>Section-wise Feedback</h3>
-      <div class="section-feedback" id="sectionFeedback"></div>
+      <div id="sectionFeedback"></div>
     </div>
 
   </div>
 </div>
 
 <script>
+/* ================= DEMO STATUS ON PAGE LOAD ================= */
+async function loadDemoStatus() {
+  try {
+    const res = await fetch("/demo-status");
+    const data = await res.json();
+
+    if (data.isDemo) {
+      const banner = document.getElementById("demoBanner");
+      const demoText = document.getElementById("demoText");
+
+      banner.style.display = "block";
+
+      if (data.remainingTries > 0) {
+        demoText.innerHTML =
+          `You have <strong>${data.remainingTries}</strong> free ATS scan(s) left.`;
+      } else {
+        demoText.innerHTML =
+          `You have used all free demo scans.`;
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load demo status");
+  }
+}
+
+// Run immediately when page opens
+loadDemoStatus();
+
+/* ================= FORM SUBMIT ================= */
 document.getElementById("uploadForm").addEventListener("submit", async (e) => {
   e.preventDefault();
 
   const formData = new FormData(e.target);
 
-  // UI state
   document.getElementById("results").style.display = "none";
   document.getElementById("loading").style.display = "block";
 
-  try {
-    const res = await fetch("/upload", {
-      method: "POST",
-      body: formData
-    });
+  const res = await fetch("/upload", { method: "POST", body: formData });
+  const result = await res.json();
 
-    const result = await res.json();
+  document.getElementById("loading").style.display = "none";
 
-    document.getElementById("loading").style.display = "none";
-
-    if (!result.success) {
-      alert(result.message);
+  if (!result.success) {
+    if (result.demoLimitReached) {
+      alert("Demo limit reached.\nLogin or signup to unlock more ATS scans.");
+      window.location.href = "/login.html";
       return;
     }
+    alert(result.message);
+    return;
+  }
 
-    const data = result.analysis;
-    document.getElementById("results").style.display = "block";
+  // Refresh demo banner after scan
+  loadDemoStatus();
 
-    // ATS Score
-    document.getElementById("atsScore").textContent = data.ats_score;
-    document.getElementById("atsNote").textContent =
-      data.mode === "resume_only"
-        ? "Based on general ATS friendliness"
-        : "Based on Job Description alignment";
+  const data = result.analysis;
+  document.getElementById("results").style.display = "block";
 
-    fillList("strengths", data.strengths);
-    fillList("weaknesses", data.weaknesses);
-    fillList("enhancements", data.enhancements);
+  // ATS Score
+  document.getElementById("atsScore").textContent = data.ats_score;
+  document.getElementById("atsNote").textContent =
+    data.mode === "resume_only"
+      ? "General ATS friendliness"
+      : "Based on job description match";
 
-    // Section feedback
-    const sf = document.getElementById("sectionFeedback");
-    sf.innerHTML = "";
-    Object.entries(data.section_feedback || {}).forEach(([k, v]) => {
-      sf.innerHTML += `<p><strong>${k}:</strong> ${v}</p>`;
-    });
+  fillList("strengths", data.strengths);
+  fillList("weaknesses", data.weaknesses);
+  fillList("enhancements", data.enhancements);
 
-    // JD based
-    if (data.mode === "resume_jd") {
-      document.getElementById("jdSection").style.display = "block";
-      document.getElementById("keywordRate").textContent = data.keyword_match + "%";
-      fillTags("matchedKeywords", data.matched_keywords);
-      fillTags("missingKeywords", data.missing_keywords);
-    } else {
-      document.getElementById("jdSection").style.display = "none";
-    }
+  // Section feedback
+  const sf = document.getElementById("sectionFeedback");
+  sf.innerHTML = "";
+  Object.entries(data.section_feedback || {}).forEach(([k, v]) => {
+    sf.innerHTML += `<p><strong>${k}:</strong> ${v}</p>`;
+  });
 
-  } catch (err) {
-    document.getElementById("loading").style.display = "none";
-    alert("Something went wrong. Please try again.");
+  // JD specific
+  if (data.mode === "resume_jd") {
+    document.getElementById("jdSection").style.display = "block";
+    document.getElementById("keywordRate").textContent =
+      data.keyword_match + "%";
+    fillTags("matchedKeywords", data.matched_keywords);
+    fillTags("missingKeywords", data.missing_keywords);
+  } else {
+    document.getElementById("jdSection").style.display = "none";
   }
 });
 
+/* ================= HELPERS ================= */
 function fillList(id, items = []) {
   const el = document.getElementById(id);
   el.innerHTML = "";
