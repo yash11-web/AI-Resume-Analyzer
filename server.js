@@ -2,7 +2,7 @@ import express from "express";
 import session from "express-session";
 import bcrypt from "bcrypt";
 import multer from "multer";
-import { createRequire } from "module"; // for pdf-parse
+import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse");
 import mammoth from "mammoth";
@@ -20,150 +20,185 @@ const PORT = process.env.PORT || 3000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --- Supabase Client ---
+/* ================== SUPABASE ================== */
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// --- Session ---
+/* ================== SESSION ================== */
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "secret",
     resave: false,
-    saveUninitialized: false,
+    saveUninitialized: true, // REQUIRED for demo users
   })
 );
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- Serve static files (but don't auto-serve index.html) ---
+/* ================== STATIC ================== */
 app.use(express.static("public", { index: false }));
 
-// --- Multer setup ---
+/* ================== MULTER ================== */
 const upload = multer({ dest: "uploads/" });
 
-// --- Google Gemini ---
+/* ================== GEMINI ================== */
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
-
-// --- Middleware for auth ---
-function isAuth(req, res, next) {
-  if (req.session.user) return next();
-  res.redirect("/login.html");
-}
-
-// --- Root route -> always login page ---
-app.get("/", (req, res) => {
-  res.redirect("/login.html");
+const model = genAI.getGenerativeModel({
+  model: "gemini-2.5-flash-lite",
 });
 
-// --- Protected route for index.html ---
-app.get("/index.html", isAuth, (req, res) => {
+/* ================== DEMO LIMITER ================== */
+const DEMO_LIMIT = 3;
+
+function demoLimiter(req, res, next) {
+  if (req.session.user) return next();
+
+  if (!req.session.demoCount) {
+    req.session.demoCount = 0;
+  }
+
+  if (req.session.demoCount >= DEMO_LIMIT) {
+    return res.status(401).json({
+      success: false,
+      demoLimitReached: true,
+      message: "Demo limit reached. Please login or signup to continue.",
+    });
+  }
+
+  req.session.demoCount += 1;
+  next();
+}
+
+/* ================== ROUTES ================== */
+
+// Entry → demo page
+app.get("/", (req, res) => {
+  res.redirect("/index.html");
+});
+
+// Public demo page
+app.get("/index.html", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// --- REGISTER ---
+/* ================== REGISTER ================== */
 app.post("/register", async (req, res) => {
   const { username, password } = req.body;
-  if (!username || !password)
+
+  if (!username || !password) {
     return res.json({ success: false, message: "Username and password required" });
+  }
 
   try {
     const hashed = await bcrypt.hash(password, 10);
     const { error } = await supabase
       .from("users")
       .insert([{ username, password: hashed }]);
+
     if (error) throw error;
     res.json({ success: true });
-  } catch (err) {
-    console.error(err);
+  } catch {
     res.json({ success: false, message: "User already exists or DB error" });
   }
 });
 
-// --- LOGIN ---
+/* ================== LOGIN ================== */
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
-  if (!username || !password)
-    return res.json({ success: false, message: "Username and password required" });
 
-  try {
-    const { data, error } = await supabase
-      .from("users")
-      .select("*")
-      .eq("username", username)
-      .single();
-    if (error || !data) return res.json({ success: false, message: "User not found" });
+  const { data } = await supabase
+    .from("users")
+    .select("*")
+    .eq("username", username)
+    .single();
 
-    const valid = await bcrypt.compare(password, data.password);
-    if (!valid) return res.json({ success: false, message: "Invalid password" });
-
-    req.session.user = { id: data.id, username: data.username };
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.json({ success: false, message: "Login failed" });
+  if (!data) {
+    return res.json({ success: false, message: "User not found" });
   }
+
+  const valid = await bcrypt.compare(password, data.password);
+  if (!valid) {
+    return res.json({ success: false, message: "Invalid password" });
+  }
+
+  req.session.user = { id: data.id, username: data.username };
+  req.session.demoCount = 0; // reset demo after login
+
+  res.json({ success: true });
 });
 
-// --- LOGOUT ---
+/* ================== LOGOUT ================== */
 app.get("/logout", (req, res) => {
   req.session.destroy(() => {
-    res.redirect("/login.html");
+    res.redirect("/index.html");
+  });
+});
+app.get("/demo-status", (req, res) => {
+  const remainingTries = req.session.user
+    ? null
+    : Math.max(
+        0,
+        DEMO_LIMIT - (req.session.demoCount || 0)
+      );
+
+  res.json({
+    isDemo: !req.session.user,
+    remainingTries,
   });
 });
 
-// --- UPLOAD & ANALYSIS ---
-app.post("/upload", isAuth, upload.single("resume"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.json({ success: false, message: "No file uploaded" });
-    }
 
-    let resumeText = "";
+/* ================== UPLOAD & ATS ================== */
+app.post(
+  "/upload",
+  demoLimiter,
+  upload.single("resume"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.json({ success: false, message: "No file uploaded" });
+      }
 
-    // Parse resume
-    if (req.file.mimetype === "application/pdf") {
-      const dataBuffer = fs.readFileSync(req.file.path);
-      const data = await pdfParse(dataBuffer);
-      resumeText = data.text;
-    } else if (
-      req.file.mimetype ===
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    ) {
-      const data = await mammoth.extractRawText({ path: req.file.path });
-      resumeText = data.value;
-    } else {
-      return res.json({ success: false, message: "Unsupported file format" });
-    }
+      let resumeText = "";
 
-    fs.unlinkSync(req.file.path);
+      if (req.file.mimetype === "application/pdf") {
+        const buffer = fs.readFileSync(req.file.path);
+        const data = await pdfParse(buffer);
+        resumeText = data.text;
+      } else if (
+        req.file.mimetype ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      ) {
+        const data = await mammoth.extractRawText({ path: req.file.path });
+        resumeText = data.value;
+      } else {
+        return res.json({ success: false, message: "Unsupported file format" });
+      }
 
-    const jobDesc = (req.body.jobdesc || "").trim();
-    const mode = jobDesc ? "resume_jd" : "resume_only";
+      fs.unlinkSync(req.file.path);
 
-    // 🔥 STRICT JSON PROMPT
-    const prompt = `
-You are a professional ATS (Applicant Tracking System).
+      const jobDesc = (req.body.jobdesc || "").trim();
+      const mode = jobDesc ? "resume_jd" : "resume_only";
 
-Analyze the resume text provided.
+      /* ========== GEMINI PROMPT (HARDENED) ========== */
+      const prompt = `
+You are an ATS system.
 
-RULES:
-- Respond ONLY in valid JSON
+CRITICAL RULES:
+- Output ONLY valid JSON
 - No markdown
-- No explanations outside JSON
-- Follow the schema strictly
+- No explanations
+- JSON must start with { and end with }
 
-Resume Text:
+Resume:
 ${resumeText}
 
 ${jobDesc ? `Job Description:\n${jobDesc}` : ""}
 
-JSON RESPONSE SCHEMA:
-
-If mode = resume_only:
+If resume_only:
 {
   "mode": "resume_only",
   "ats_score": number,
@@ -178,7 +213,7 @@ If mode = resume_only:
   }
 }
 
-If mode = resume_jd:
+If resume_jd:
 {
   "mode": "resume_jd",
   "ats_score": number,
@@ -196,37 +231,54 @@ If mode = resume_jd:
   }
 }
 
-Mode to use: ${mode}
+Mode: ${mode}
 `;
 
-    const result = await model.generateContent(prompt);
-    const rawText = result.response.text();
+      const aiResult = await model.generateContent(prompt);
+      const rawText = aiResult.response.text();
 
-    // 🛡️ Safety JSON parse
-    let analysis;
-    try {
-      analysis = JSON.parse(rawText);
-    } catch (err) {
-      console.error("❌ JSON parse error:", rawText);
-      return res.json({
-        success: false,
-        message: "AI response format error. Try again."
+      /* ========== SAFE JSON EXTRACTION ========== */
+      let jsonText = rawText.trim();
+
+      if (jsonText.startsWith("```")) {
+        jsonText = jsonText.replace(/```json|```/g, "").trim();
+      }
+
+      const firstBrace = jsonText.indexOf("{");
+      const lastBrace = jsonText.lastIndexOf("}");
+
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        jsonText = jsonText.substring(firstBrace, lastBrace + 1);
+      }
+
+      let analysis;
+      try {
+        analysis = JSON.parse(jsonText);
+      } catch (err) {
+        console.error("❌ RAW GEMINI OUTPUT:\n", rawText);
+        return res.json({
+          success: false,
+          message: "AI response format error. Please retry.",
+        });
+      }
+
+      const remainingTries = req.session.user
+        ? null
+        : Math.max(0, DEMO_LIMIT - req.session.demoCount);
+
+      res.json({
+        success: true,
+        analysis,
+        remainingTries,
       });
+    } catch (err) {
+      console.error("❌ ATS ERROR:", err);
+      res.json({ success: false, message: "Analysis failed" });
     }
-
-    res.json({
-      success: true,
-      analysis
-    });
-
-  } catch (err) {
-    console.error("❌ Resume analysis error:", err);
-    res.json({ success: false, message: "Analysis failed" });
   }
-});
+);
 
-
-// --- START SERVER ---
+/* ================== START ================== */
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
